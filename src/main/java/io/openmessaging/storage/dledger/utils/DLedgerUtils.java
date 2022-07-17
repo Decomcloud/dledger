@@ -33,6 +33,7 @@ public class DLedgerUtils {
         return System.currentTimeMillis() - start;
     }
 
+    // 根据offset生成20位的文件名
     public static String offset2FileName(final long offset) {
         NumberFormat nf = NumberFormat.getInstance();
         nf.setMinimumIntegerDigits(20);

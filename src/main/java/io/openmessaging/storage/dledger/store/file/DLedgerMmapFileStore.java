@@ -76,13 +76,16 @@ public class DLedgerMmapFileStore extends DLedgerStore {
         this.dLedgerConfig = dLedgerConfig;
         this.memberState = memberState;
         if (dLedgerConfig.getDataStorePath().contains(DLedgerConfig.MULTI_PATH_SPLITTER)) {
-            this.dataFileList = new MultiPathMmapFileList(dLedgerConfig, dLedgerConfig.getMappedFileSizeForEntryData(),
-                    this::getFullStorePaths);
+            this.dataFileList = new MultiPathMmapFileList(dLedgerConfig, dLedgerConfig.getMappedFileSizeForEntryData(), this::getFullStorePaths);
         } else {
+            // 默认1g
             this.dataFileList = new MmapFileList(dLedgerConfig.getDataStorePath(), dLedgerConfig.getMappedFileSizeForEntryData());
         }
+        // 默认160m
         this.indexFileList = new MmapFileList(dLedgerConfig.getIndexStorePath(), dLedgerConfig.getMappedFileSizeForEntryIndex());
+        // 内存分配4m
         localEntryBuffer = ThreadLocal.withInitial(() -> ByteBuffer.allocate(4 * 1024 * 1024));
+        // 索引分配 32 * 2
         localIndexBuffer = ThreadLocal.withInitial(() -> ByteBuffer.allocate(INDEX_UNIT_SIZE * 2));
         flushDataService = new FlushDataService("DLedgerFlushDataService", logger);
         cleanSpaceService = new CleanSpaceService("DLedgerCleanSpaceService", logger);

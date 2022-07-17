@@ -71,6 +71,7 @@ public class MmapFileList {
         return true;
     }
 
+    // 根据时间戳寻找mmapfile, 没有返回最后一个
     public MmapFile getMappedFileByTime(final long timestamp) {
         Object[] mfs = this.copyMappedFiles();
 
@@ -95,6 +96,7 @@ public class MmapFileList {
         return this.mappedFiles.toArray();
     }
 
+    // 把offset之后的文件都不要了
     public void truncateOffset(long offset) {
         Object[] mfs = this.copyMappedFiles();
         if (mfs == null) {
@@ -105,12 +107,15 @@ public class MmapFileList {
         for (int i = 0; i < mfs.length; i++) {
             MmapFile file = (MmapFile) mfs[i];
             long fileTailOffset = file.getFileFromOffset() + this.mappedFileSize;
+            // 尾部大于offset的
             if (fileTailOffset > offset) {
+                // offset在这个文件中, 设置下写入等偏移量
                 if (offset >= file.getFileFromOffset()) {
                     file.setWrotePosition((int) (offset % this.mappedFileSize));
                     file.setCommittedPosition((int) (offset % this.mappedFileSize));
                     file.setFlushedPosition((int) (offset % this.mappedFileSize));
                 } else {
+                    // offset之后的文件
                     willRemoveFiles.add(file);
                 }
             }
@@ -120,6 +125,7 @@ public class MmapFileList {
         this.deleteExpiredFiles(willRemoveFiles);
     }
 
+    // 从磁盘中销毁文件
     void destroyExpiredFiles(List<MmapFile> files) {
         Collections.sort(files, (o1, o2) -> {
             if (o1.getFileFromOffset() < o2.getFileFromOffset()) {
@@ -141,6 +147,7 @@ public class MmapFileList {
         }
     }
 
+    // 把offset之前的文件都不要了
     public void resetOffset(long offset) {
         Object[] mfs = this.copyMappedFiles();
         if (mfs == null) {
@@ -189,6 +196,7 @@ public class MmapFileList {
         return preAppend(len, true);
     }
 
+    // 预追加, 正常情况下返回该数据可以被写入的偏移量
     public long preAppend(int len, boolean useBlank) {
         MmapFile mappedFile = getLastMappedFile();
         if (null == mappedFile || mappedFile.isFull()) {
@@ -198,15 +206,21 @@ public class MmapFileList {
             logger.error("Create mapped file for {}", storePath);
             return -1;
         }
+        // 文件留白, 默认8个字节
         int blank = useBlank ? MIN_BLANK_LEN : 0;
+        // 要追加的长度和留白的长度大于文件剩余可写的空间
         if (len + blank > mappedFile.getFileSize() - mappedFile.getWrotePosition()) {
+            // 追加数据就超过了空闲的大小
             if (blank < MIN_BLANK_LEN) {
                 logger.error("Blank {} should ge {}", blank, MIN_BLANK_LEN);
                 return -1;
             } else {
+                // 分配剩余文件大小的buffer
                 ByteBuffer byteBuffer = ByteBuffer.allocate(mappedFile.getFileSize() - mappedFile.getWrotePosition());
                 byteBuffer.putInt(BLANK_MAGIC_CODE);
+                // 放入文件剩余大小
                 byteBuffer.putInt(mappedFile.getFileSize() - mappedFile.getWrotePosition());
+                // 追加, 然后写满
                 if (mappedFile.appendMessage(byteBuffer.array())) {
                     //need to set the wrote position
                     mappedFile.setWrotePosition(mappedFile.getFileSize());
@@ -214,6 +228,7 @@ public class MmapFileList {
                     logger.error("Append blank error for {}", storePath);
                     return -1;
                 }
+                // 创建新的mapped file
                 mappedFile = getLastMappedFile(0);
                 if (null == mappedFile) {
                     logger.error("Create mapped file for {}", storePath);
@@ -221,16 +236,19 @@ public class MmapFileList {
                 }
             }
         }
+        // 返回可以写入的位置
         return mappedFile.getFileFromOffset() + mappedFile.getWrotePosition();
 
     }
 
     public long append(byte[] data, int pos, int len, boolean useBlank) {
+        // 先进行预追加
         if (preAppend(len, useBlank) == -1) {
             return -1;
         }
         MmapFile mappedFile = getLastMappedFile();
         long currPosition = mappedFile.getFileFromOffset() + mappedFile.getWrotePosition();
+        // 追加数据
         if (!mappedFile.appendMessage(data, pos, len)) {
             logger.error("Append error for {}", storePath);
             return -1;
@@ -238,6 +256,7 @@ public class MmapFileList {
         return currPosition;
     }
 
+    // 根据偏移量和大小查找数据
     public SelectMmapBufferResult getData(final long offset, final int size) {
         MmapFile mappedFile = findMappedFileByOffset(offset, offset == 0);
         if (mappedFile != null) {
@@ -247,6 +266,7 @@ public class MmapFileList {
         return null;
     }
 
+    // 根据偏移量读取到mapped file最后
     public SelectMmapBufferResult getData(final long offset) {
         MmapFile mappedFile = findMappedFileByOffset(offset, offset == 0);
         if (mappedFile != null) {
@@ -279,6 +299,7 @@ public class MmapFileList {
         }
     }
 
+    // 把磁盘上的文件加载出来
     public boolean load() {
         File dir = new File(this.storePath);
         File[] files = dir.listFiles();
@@ -294,13 +315,11 @@ public class MmapFileList {
         for (File file : files) {
 
             if (file.length() != this.mappedFileSize) {
-                logger.warn(file + "\t" + file.length()
-                        + " length not matched message store config value, please check it manually. You should delete old files before changing mapped file size");
+                logger.warn(file + "\t" + file.length() + " length not matched message store config value, please check it manually. You should delete old files before changing mapped file size");
                 return false;
             }
             try {
                 MmapFile mappedFile = new DefaultMmapFile(file.getPath(), mappedFileSize);
-
                 mappedFile.setWrotePosition(this.mappedFileSize);
                 mappedFile.setFlushedPosition(this.mappedFileSize);
                 mappedFile.setCommittedPosition(this.mappedFileSize);
@@ -323,7 +342,7 @@ public class MmapFileList {
         } else if (mappedFileLast.isFull()) {
             createOffset = mappedFileLast.getFileFromOffset() + this.mappedFileSize;
         }
-
+        // 没有就创建一个
         if (createOffset != -1 && needCreate) {
             return tryCreateMappedFile(createOffset);
         }
@@ -346,6 +365,7 @@ public class MmapFileList {
 
         if (mappedFile != null) {
             if (this.mappedFiles.isEmpty()) {
+                // 标记为第一个mapped file
                 mappedFile.setFirstCreateInQueue(true);
             }
             this.mappedFiles.add(mappedFile);
@@ -400,10 +420,12 @@ public class MmapFileList {
         return 0;
     }
 
+    // 还有多少可以提交的数据
     public long remainHowManyDataToCommit() {
         return getMaxWrotePosition() - committedWhere;
     }
 
+    // 还有多少可以刷盘的数据
     public long remainHowManyDataToFlush() {
         return getMaxReadPosition() - flushedWhere;
     }
@@ -418,10 +440,7 @@ public class MmapFileList {
         }
     }
 
-    public int deleteExpiredFileByTime(final long expiredTime,
-        final int deleteFilesInterval,
-        final long intervalForcibly,
-        final boolean cleanImmediately) {
+    public int deleteExpiredFileByTime(final long expiredTime, final int deleteFilesInterval, final long intervalForcibly, final boolean cleanImmediately) {
         Object[] mfs = this.copyMappedFiles();
 
         if (null == mfs) {
@@ -483,8 +502,7 @@ public class MmapFileList {
                     result.release();
                     destroy = maxOffsetInLogicQueue < offset;
                     if (destroy) {
-                        logger.info("physic min offset " + offset + ", logics in current mappedFile max offset "
-                            + maxOffsetInLogicQueue + ", delete it");
+                        logger.info("physic min offset " + offset + ", logics in current mappedFile max offset " + maxOffsetInLogicQueue + ", delete it");
                     }
                 } else if (!mappedFile.isAvailable()) { // Handle hanged file.
                     logger.warn("Found a hanged consume queue file, attempting to delete it.");
@@ -546,36 +564,26 @@ public class MmapFileList {
             MmapFile firstMappedFile = this.getFirstMappedFile();
             MmapFile lastMappedFile = this.getLastMappedFile();
             if (firstMappedFile != null && lastMappedFile != null) {
+                // offset超出范围了
                 if (offset < firstMappedFile.getFileFromOffset() || offset >= lastMappedFile.getFileFromOffset() + this.mappedFileSize) {
-                    logger.warn("Offset not matched. Request offset: {}, firstOffset: {}, lastOffset: {}, mappedFileSize: {}, mappedFiles count: {}",
-                        offset,
-                        firstMappedFile.getFileFromOffset(),
-                        lastMappedFile.getFileFromOffset() + this.mappedFileSize,
-                        this.mappedFileSize,
-                        this.mappedFiles.size());
+                    logger.warn("Offset not matched. Request offset: {}, firstOffset: {}, lastOffset: {}, mappedFileSize: {}, mappedFiles count: {}", offset, firstMappedFile.getFileFromOffset(), lastMappedFile.getFileFromOffset() + this.mappedFileSize, this.mappedFileSize, this.mappedFiles.size());
                 } else {
+                    // 获取mapped file的index
                     int index = (int) ((offset / this.mappedFileSize) - (firstMappedFile.getFileFromOffset() / this.mappedFileSize));
                     MmapFile targetFile = null;
                     try {
                         targetFile = this.mappedFiles.get(index);
                     } catch (Exception ignored) {
                     }
-
-                    if (targetFile != null && offset >= targetFile.getFileFromOffset()
-                        && offset < targetFile.getFileFromOffset() + this.mappedFileSize) {
+                    // 在指定的范围内, 直接返回
+                    if (targetFile != null && offset >= targetFile.getFileFromOffset() && offset < targetFile.getFileFromOffset() + this.mappedFileSize) {
                         return targetFile;
                     }
 
-                    logger.warn("Offset is matched, but get file failed, maybe the file number is changed. Request offset: {}, firstOffset: {}, lastOffset: {}, mappedFileSize: {}, mappedFiles count: {}",
-                        offset,
-                        firstMappedFile.getFileFromOffset(),
-                        lastMappedFile.getFileFromOffset() + this.mappedFileSize,
-                        this.mappedFileSize,
-                        this.mappedFiles.size());
-
+                    logger.warn("Offset is matched, but get file failed, maybe the file number is changed. Request offset: {}, firstOffset: {}, lastOffset: {}, mappedFileSize: {}, mappedFiles count: {}", offset, firstMappedFile.getFileFromOffset(), lastMappedFile.getFileFromOffset() + this.mappedFileSize, this.mappedFileSize, this.mappedFiles.size());
+                    // 没有通过索引找到, 对于每个都查找一下
                     for (MmapFile tmpMappedFile : this.mappedFiles) {
-                        if (offset >= tmpMappedFile.getFileFromOffset()
-                            && offset < tmpMappedFile.getFileFromOffset() + this.mappedFileSize) {
+                        if (offset >= tmpMappedFile.getFileFromOffset() && offset < tmpMappedFile.getFileFromOffset() + this.mappedFileSize) {
                             return tmpMappedFile;
                         }
                     }

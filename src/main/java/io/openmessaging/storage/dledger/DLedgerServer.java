@@ -65,13 +65,15 @@ import org.apache.rocketmq.remoting.netty.NettyServerConfig;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+// 每个broker都是一个dledger server
 public class DLedgerServer implements DLedgerProtocolHandler {
 
     private static Logger logger = LoggerFactory.getLogger(DLedgerServer.class);
-
+    // 记录成员状态和投票
     private MemberState memberState;
     private DLedgerConfig dLedgerConfig;
 
+    // 数据作为日志格式, log entry, 日志条目, 写入本地磁盘以及同步给其他peers
     private DLedgerStore dLedgerStore;
     private DLedgerRpcService dLedgerRpcService;
     private DLedgerEntryPusher dLedgerEntryPusher;

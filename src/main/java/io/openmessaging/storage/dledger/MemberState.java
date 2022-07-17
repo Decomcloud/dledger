@@ -60,6 +60,7 @@ public class MemberState {
         this.group = config.getGroup();
         this.selfId = config.getSelfId();
         this.peers = config.getPeers();
+        // 用,切割
         for (String peerInfo : this.peers.split(";")) {
             String peerSelfId = peerInfo.split("-")[0];
             String peerAddress = peerInfo.substring(peerSelfId.length() + 1);
@@ -71,14 +72,17 @@ public class MemberState {
 
     private void loadTerm() {
         try {
+            // 默认地址 /tmp/dledgerstore/dledger-${self-id}/currterm
             String data = IOUtils.file2String(dLedgerConfig.getDefaultPath() + File.separator + TERM_PERSIST_FILE);
             Properties properties = IOUtils.string2Properties(data);
             if (properties == null) {
                 return;
             }
+            // 获取currTerm
             if (properties.containsKey(TERM_PERSIST_KEY_TERM)) {
                 currTerm = Long.valueOf(String.valueOf(properties.get(TERM_PERSIST_KEY_TERM)));
             }
+            // 获取voteLeader
             if (properties.containsKey(TERM_PERSIST_KEY_VOTE_FOR)) {
                 currVoteFor = String.valueOf(properties.get(TERM_PERSIST_KEY_VOTE_FOR));
                 if (currVoteFor.length() == 0) {
@@ -90,6 +94,7 @@ public class MemberState {
         }
     }
 
+    // 持久化回去
     private void persistTerm() {
         try {
             Properties properties = new Properties();
@@ -110,6 +115,7 @@ public class MemberState {
         return currVoteFor;
     }
 
+    // 设置投票, 并且持久化
     public synchronized void setCurrVoteFor(String currVoteFor) {
         this.currVoteFor = currVoteFor;
         persistTerm();
@@ -117,6 +123,7 @@ public class MemberState {
 
     public synchronized long nextTerm() {
         PreConditions.check(role == CANDIDATE, DLedgerResponseCode.ILLEGAL_MEMBER_STATE, "%s != %s", role, CANDIDATE);
+        // 检验下term是否正确
         if (knownMaxTermInGroup > currTerm) {
             currTerm = knownMaxTermInGroup;
         } else {
@@ -127,6 +134,7 @@ public class MemberState {
         return currTerm;
     }
 
+    // 当选为leader
     public synchronized void changeToLeader(long term) {
         PreConditions.check(currTerm == term, DLedgerResponseCode.ILLEGAL_MEMBER_STATE, "%d != %d", currTerm, term);
         this.role = LEADER;
@@ -134,6 +142,7 @@ public class MemberState {
         peersLiveTable.clear();
     }
 
+    // 当选为follower
     public synchronized void changeToFollower(long term, String leaderId) {
         PreConditions.check(currTerm == term, DLedgerResponseCode.ILLEGAL_MEMBER_STATE, "%d != %d", currTerm, term);
         this.role = FOLLOWER;
@@ -141,6 +150,7 @@ public class MemberState {
         transferee = null;
     }
 
+    // 重置为candidate
     public synchronized void changeToCandidate(long term) {
         assert term >= currTerm;
         PreConditions.check(term >= currTerm, DLedgerResponseCode.ILLEGAL_MEMBER_STATE, "should %d >= %d", term, currTerm);
