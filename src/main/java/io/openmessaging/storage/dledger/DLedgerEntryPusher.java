@@ -281,14 +281,13 @@ public class DLedgerEntryPusher {
                 if (DLedgerUtils.elapsed(lastPrintWatermarkTimeMs) > 3000) {
                     if (DLedgerEntryPusher.this.fsmCaller.isPresent()) {
                         final long lastAppliedIndex = DLedgerEntryPusher.this.fsmCaller.get().getLastAppliedIndex();
-                        logger.info("[{}][{}] term={} ledgerBegin={} ledgerEnd={} committed={} watermarks={} appliedIndex={}",
-                            memberState.getSelfId(), memberState.getRole(), memberState.currTerm(), dLedgerStore.getLedgerBeginIndex(), dLedgerStore.getLedgerEndIndex(), dLedgerStore.getCommittedIndex(), JSON.toJSONString(peerWaterMarksByTerm), lastAppliedIndex);
+                        logger.info("[{}][{}] term={} ledgerBegin={} ledgerEnd={} committed={} watermarks={} appliedIndex={}", memberState.getSelfId(), memberState.getRole(), memberState.currTerm(), dLedgerStore.getLedgerBeginIndex(), dLedgerStore.getLedgerEndIndex(), dLedgerStore.getCommittedIndex(), JSON.toJSONString(peerWaterMarksByTerm), lastAppliedIndex);
                     } else {
-                        logger.info("[{}][{}] term={} ledgerBegin={} ledgerEnd={} committed={} watermarks={}",
-                            memberState.getSelfId(), memberState.getRole(), memberState.currTerm(), dLedgerStore.getLedgerBeginIndex(), dLedgerStore.getLedgerEndIndex(), dLedgerStore.getCommittedIndex(), JSON.toJSONString(peerWaterMarksByTerm));
+                        logger.info("[{}][{}] term={} ledgerBegin={} ledgerEnd={} committed={} watermarks={}", memberState.getSelfId(), memberState.getRole(), memberState.currTerm(), dLedgerStore.getLedgerBeginIndex(), dLedgerStore.getLedgerEndIndex(), dLedgerStore.getCommittedIndex(), JSON.toJSONString(peerWaterMarksByTerm));
                     }
                     lastPrintWatermarkTimeMs = System.currentTimeMillis();
                 }
+                // leader的线程
                 if (!memberState.isLeader()) {
                     waitForRunning(1);
                     return;
@@ -296,11 +295,14 @@ public class DLedgerEntryPusher {
                 long currTerm = memberState.currTerm();
                 checkTermForPendingMap(currTerm, "QuorumAckChecker");
                 checkTermForWaterMark(currTerm, "QuorumAckChecker");
+
+                // 移除掉非本周期的
                 if (pendingAppendResponsesByTerm.size() > 1) {
                     for (Long term : pendingAppendResponsesByTerm.keySet()) {
                         if (term == currTerm) {
                             continue;
                         }
+                        // 返回非本周期的请求结果
                         for (Map.Entry<Long, TimeoutFuture<AppendEntryResponse>> futureEntry : pendingAppendResponsesByTerm.get(term).entrySet()) {
                             AppendEntryResponse response = new AppendEntryResponse();
                             response.setGroup(memberState.getGroup());
@@ -313,6 +315,7 @@ public class DLedgerEntryPusher {
                         pendingAppendResponsesByTerm.remove(term);
                     }
                 }
+                // 也是移除掉非本周期的
                 if (peerWaterMarksByTerm.size() > 1) {
                     for (Long term : peerWaterMarksByTerm.keySet()) {
                         if (term == currTerm) {
@@ -322,17 +325,17 @@ public class DLedgerEntryPusher {
                         peerWaterMarksByTerm.remove(term);
                     }
                 }
-
+                // 根据当前term 获取水位数据
                 Map<String, Long> peerWaterMarks = peerWaterMarksByTerm.get(currTerm);
-                List<Long> sortedWaterMarks = peerWaterMarks.values()
-                    .stream()
-                    .sorted(Comparator.reverseOrder())
-                    .collect(Collectors.toList());
+                // 逆序排序
+                List<Long> sortedWaterMarks = peerWaterMarks.values().stream().sorted(Comparator.reverseOrder()).collect(Collectors.toList());
+                // 获取quorumIndex
                 long quorumIndex = sortedWaterMarks.get(sortedWaterMarks.size() / 2);
                 final Optional<StateMachineCaller> fsmCaller = DLedgerEntryPusher.this.fsmCaller;
                 if (fsmCaller.isPresent()) {
                     // If there exist statemachine
                     DLedgerEntryPusher.this.dLedgerStore.updateCommittedIndex(currTerm, quorumIndex);
+                    // 放入状态机中
                     final StateMachineCaller caller = fsmCaller.get();
                     caller.onCommitted(quorumIndex);
 
@@ -903,10 +906,10 @@ public class DLedgerEntryPusher {
             return response;
         }
 
-        private void handleDoAppend(long writeIndex, PushEntryRequest request,
-            CompletableFuture<PushEntryResponse> future) {
+        private void handleDoAppend(long writeIndex, PushEntryRequest request, CompletableFuture<PushEntryResponse> future) {
             try {
                 PreConditions.check(writeIndex == request.getEntry().getIndex(), DLedgerResponseCode.INCONSISTENT_STATE);
+                // 作为follower追加
                 DLedgerEntry entry = dLedgerStore.appendAsFollower(request.getEntry(), request.getTerm(), request.getLeaderId());
                 PreConditions.check(entry.getIndex() == writeIndex, DLedgerResponseCode.INCONSISTENT_STATE);
                 future.complete(buildResponse(request, DLedgerResponseCode.SUCCESS.getCode()));
@@ -917,8 +920,7 @@ public class DLedgerEntryPusher {
             }
         }
 
-        private CompletableFuture<PushEntryResponse> handleDoCompare(long compareIndex, PushEntryRequest request,
-            CompletableFuture<PushEntryResponse> future) {
+        private CompletableFuture<PushEntryResponse> handleDoCompare(long compareIndex, PushEntryRequest request, CompletableFuture<PushEntryResponse> future) {
             try {
                 PreConditions.check(compareIndex == request.getEntry().getIndex(), DLedgerResponseCode.UNKNOWN);
                 PreConditions.check(request.getType() == PushEntryRequest.Type.COMPARE, DLedgerResponseCode.UNKNOWN);
@@ -946,8 +948,7 @@ public class DLedgerEntryPusher {
             return future;
         }
 
-        private CompletableFuture<PushEntryResponse> handleDoTruncate(long truncateIndex, PushEntryRequest request,
-            CompletableFuture<PushEntryResponse> future) {
+        private CompletableFuture<PushEntryResponse> handleDoTruncate(long truncateIndex, PushEntryRequest request, CompletableFuture<PushEntryResponse> future) {
             try {
                 logger.info("[HandleDoTruncate] truncateIndex={} pos={}", truncateIndex, request.getEntry().getPos());
                 PreConditions.check(truncateIndex == request.getEntry().getIndex(), DLedgerResponseCode.UNKNOWN);
@@ -963,8 +964,7 @@ public class DLedgerEntryPusher {
             return future;
         }
 
-        private void handleDoBatchAppend(long writeIndex, PushEntryRequest request,
-            CompletableFuture<PushEntryResponse> future) {
+        private void handleDoBatchAppend(long writeIndex, PushEntryRequest request, CompletableFuture<PushEntryResponse> future) {
             try {
                 PreConditions.check(writeIndex == request.getFirstEntryIndex(), DLedgerResponseCode.INCONSISTENT_STATE);
                 for (DLedgerEntry entry : request.getBatchEntry()) {
@@ -1046,6 +1046,7 @@ public class DLedgerEntryPusher {
         @Override
         public void doWork() {
             try {
+                // 不是follower就直接返回
                 if (!memberState.isFollower()) {
                     waitForRunning(1);
                     return;
