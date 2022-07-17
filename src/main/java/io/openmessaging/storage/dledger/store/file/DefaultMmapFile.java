@@ -63,6 +63,7 @@ public class DefaultMmapFile extends ReferenceResource implements MmapFile {
 
         try {
             this.fileChannel = new RandomAccessFile(this.file, "rw").getChannel();
+            // 映射到内存中
             this.mappedByteBuffer = this.fileChannel.map(MapMode.READ_WRITE, 0, fileSize);
             TOTAL_MAPPED_VIRTUAL_MEMORY.addAndGet(fileSize);
             TOTAL_MAPPED_FILES.incrementAndGet();
@@ -98,6 +99,7 @@ public class DefaultMmapFile extends ReferenceResource implements MmapFile {
         }
     }
 
+    // 通过反射调用, 清理内存区域
     public static void clean(final ByteBuffer buffer) {
         if (buffer == null || !buffer.isDirect() || buffer.capacity() == 0) {
             return;
@@ -176,13 +178,16 @@ public class DefaultMmapFile extends ReferenceResource implements MmapFile {
      * @param offset The offset of the subarray to be used.
      * @param length The length of the subarray to be used.
      */
+    // 追加指定消息到指定位置
     @Override
     public boolean appendMessage(final byte[] data, final int offset, final int length) {
         int currentPos = this.wrotePosition.get();
 
         if ((currentPos + length) <= this.fileSize) {
+            // 取出可以写入的空闲的buffer, 这里没有指定position, 默认就是都拿, 每个buffer独立的位置, 可以避免flip
             ByteBuffer byteBuffer = this.mappedByteBuffer.slice();
             byteBuffer.position(currentPos);
+            // offset, 把data的offset位置开始的length个字节写入byteBuffer
             byteBuffer.put(data, offset, length);
             this.wrotePosition.addAndGet(length);
             return true;
@@ -318,12 +323,10 @@ public class DefaultMmapFile extends ReferenceResource implements MmapFile {
                     this.release();
                 }
             } else {
-                logger.debug("matched, but hold failed, request pos: " + pos + ", fileFromOffset: "
-                    + this.fileFromOffset);
+                logger.debug("matched, but hold failed, request pos: " + pos + ", fileFromOffset: " + this.fileFromOffset);
             }
         } else {
-            logger.warn("selectMappedBuffer request pos invalid, request pos: " + pos + ", size: " + size
-                + ", fileFromOffset: " + this.fileFromOffset);
+            logger.warn("selectMappedBuffer request pos invalid, request pos: " + pos + ", size: " + size + ", fileFromOffset: " + this.fileFromOffset);
         }
 
         return false;
@@ -332,14 +335,12 @@ public class DefaultMmapFile extends ReferenceResource implements MmapFile {
     @Override
     public boolean cleanup(final long currentRef) {
         if (this.isAvailable()) {
-            logger.error("this file[REF:" + currentRef + "] " + this.fileName
-                + " have not shutdown, stop unmapping.");
+            logger.error("this file[REF:" + currentRef + "] " + this.fileName + " have not shutdown, stop unmapping.");
             return false;
         }
 
         if (this.isCleanupOver()) {
-            logger.error("this file[REF:" + currentRef + "] " + this.fileName
-                + " have cleanup, do not do it again.");
+            logger.error("this file[REF:" + currentRef + "] " + this.fileName + " have cleanup, do not do it again.");
             return true;
         }
 
@@ -361,10 +362,7 @@ public class DefaultMmapFile extends ReferenceResource implements MmapFile {
 
                 long beginTime = System.currentTimeMillis();
                 boolean result = this.file.delete();
-                logger.info("delete file[REF:" + this.getRefCount() + "] " + this.fileName
-                    + (result ? " OK, " : " Failed, ") + "W:" + this.getWrotePosition() + " M:"
-                    + this.getFlushedPosition() + ", "
-                    + DLedgerUtils.computeEclipseTimeMilliseconds(beginTime));
+                logger.info("delete file[REF:" + this.getRefCount() + "] " + this.fileName + (result ? " OK, " : " Failed, ") + "W:" + this.getWrotePosition() + " M:" + this.getFlushedPosition() + ", " + DLedgerUtils.computeEclipseTimeMilliseconds(beginTime));
                 Thread.sleep(10);
             } catch (Exception e) {
                 logger.warn("close file channel " + this.fileName + " Failed. ", e);
@@ -372,8 +370,7 @@ public class DefaultMmapFile extends ReferenceResource implements MmapFile {
 
             return true;
         } else {
-            logger.warn("destroy mapped file[REF:" + this.getRefCount() + "] " + this.fileName
-                + " Failed. cleanupOver: " + this.cleanupOver);
+            logger.warn("destroy mapped file[REF:" + this.getRefCount() + "] " + this.fileName + " Failed. cleanupOver: " + this.cleanupOver);
         }
 
         return false;
